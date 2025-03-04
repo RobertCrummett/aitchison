@@ -136,10 +136,12 @@ void swap(double *first, double *second) {
 	*second = temp;
 }
 
-void roll(double *data, size_t size, size_t amount) {
-	amount %= size;
-	for (size_t i = 0; i < size - amount; i++)
-		swap(&data[size - i - 1], &data[size - amount - i - 1]);
+void roll(double *data, size_t size, size_t steps) {
+	for (size_t i = 0; i < size - steps % size; i++) {
+		printf("%lf %lf\n", data[size - i - 1], data[size - i - 1 - steps % size]);
+		swap(&data[size - i - 1], &data[size - i - 1 - steps % size]);
+	}
+	printf("\n");
 }
 
 void inverse_isometric_log_ratio(double *data, double *contrast_matrix, double *aux, double total, size_t observations, size_t channels) {
@@ -176,7 +178,7 @@ int main(void) {
 	}
 	printf("\n");
 
-	roll(data, observations * channels, 8);
+	roll(data, observations * channels, 1);
 	// for (size_t i = 0; i < observations * (channels - 1); i++)
 	// swap(&data[observations * channels - i - 1], &data[observations * (channels - 1) - i - 1]);
 
