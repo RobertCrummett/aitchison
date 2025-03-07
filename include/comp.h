@@ -21,4 +21,7 @@ extern void comp_contrast_matrix(int *sequential_binary_parition, double *contra
 extern void comp_isometric_log_ratio(comp_t *comp, double *contrast_matrix);
 extern void comp_inverse_isometric_log_ratio(comp_t *comp, double *contrast_matrix, double total);
 
+extern comp_t* comp_alloc(size_t observations, size_t channels);
+extern void comp_free(comp_t** comp);
+
 #endif

@@ -1,31 +1,31 @@
 #include <assert.h>
 #include <math.h>
 #include <stddef.h>
-
+#include <stdlib.h>
 #include "comp.h"
 
 double comp_sum(double *data, size_t size, size_t stride) {
 	double s = 0;
-	for ( ; stride * size > 0; size -= stride)
-		s += data[size - 1];
+	for (size_t i = 0; i < size; i++)
+		s += data[i * stride];
 	return s;
 }
 
 void comp_scale(double* data, double a, size_t size, size_t stride) {
-	for ( ; stride * size > 0; size -= stride)
-		data[size - 1] *= a;
+	for (size_t i = 0; i < size; i++)
+		data[i * stride] *= a;
 }
 
 double comp_ddot(double *first, double *second, size_t size, size_t stride_f, size_t stride_s) {
 	double s = 0;
-	for ( ; size > 0; size--)
-		s += first[(size - 1) * stride_f] * second[(size - 1) * stride_s];
+	for (size_t i = 0; i < size; i++)
+		s += first[i * stride_f] * second[i * stride_s];
 	return s;
 }
 
 double comp_geometric_mean(double *data, size_t size, size_t stride)  {
 	double s = 0;
-	for (size_t i = 0; i < size * stride; i += stride)
+	for (size_t i = 0; i < size; i++)
 		s += log(data[i * stride]);
 	return exp(s / size);
 }
@@ -36,10 +36,15 @@ void comp_swap(double *first, double *second) {
 	*second = temp;
 }
 
+void comp_reverse(double *data, size_t size, size_t stride) {
+	for (size_t i = 0; i < size / 2; i++)
+		comp_swap(data + i * stride, data + size - 1 - i * stride);
+}
+
 void comp_roll(double *data, size_t size, size_t stride, size_t times) {
-	for ( ; times > 0; times--)
-		for (size_t i = size - 1; i > 0; i--)
-			comp_swap(data + i * stride, data + (i - 1) * stride);
+	comp_reverse(data, times, stride);
+	comp_reverse(data + times, size - times, stride);
+	comp_reverse(data, size, stride);
 }
 
 void comp_closure(comp_t* comp, double total) {
@@ -48,10 +53,8 @@ void comp_closure(comp_t* comp, double total) {
 	double* data = comp->data;
 
 	for (size_t i = 0; i < observations; i++) {
-		double k = total / comp_sum(data, channels, 1);
-		comp_scale(data, k, channels, 1);
-		if (i < observations - 1)
-			data += channels;
+		double k = total / comp_sum(&data[i * channels], channels, 1);
+		comp_scale(&data[i * channels], k, channels, 1);
 	}
 }
 
@@ -75,23 +78,25 @@ void comp_power(comp_t *comp, double exponent, double total) {
 
 void comp_centered_log_ratio(comp_t *comp) {
 	size_t observations = comp->observations;
-	size_t channels = comp->observations;
+	size_t channels = comp->channels;
 	double *data = comp->data;
-	for ( ; observations > 0; observations--) {
-		double geomean = comp_geometric_mean(data, channels, 1);
+
+	for (size_t i = 0; i < observations; i++) {
+		double geomean = comp_geometric_mean(&data[i * channels], channels, 1);
 		double log_geomean = log(geomean);
-		for (size_t i = 0; i < channels; i++)
-			data[i] = log(data[i]) - log_geomean;
-		if (observations > 1)
-			data += channels;
+
+		for (size_t j = 0; j < channels; j++)
+			data[i * channels + j] = log(data[i * channels + j]) - log_geomean;
 	}
 }
 
 void comp_inverse_centered_log_ratio(comp_t *comp, double total) {
 	size_t data_size = comp->observations * comp->channels;
 	double *data = comp->data;
+
 	for (size_t i = 0; i < data_size; i++)
 		data[i] = exp(data[i]);
+
 	comp_closure(comp, total);
 }
 
@@ -150,13 +155,10 @@ void comp_isometric_log_ratio(comp_t *comp, double *contrast_matrix) {
 
 	for (size_t i = 0; i < observations; i++) {
 		for (size_t j = 0; j < channels - 1; j++)
-			aux[j] = comp_ddot(data, contrast_matrix + j * channels, channels, 1, 1);
+			aux[j] = comp_ddot(&data[i * channels], &contrast_matrix[j * channels], channels, 1, 1);
 
 		for (size_t j = 0; j < channels - 1; j++)
-			(data - i)[j] = aux[j];
-
-		if (i < observations - 1)
-			data += channels;
+			data[i * channels + j] = aux[j];
 	}
 }
 
@@ -166,25 +168,59 @@ void comp_inverse_isometric_log_ratio(comp_t *comp, double *contrast_matrix, dou
 	size_t observations = comp->observations;
 	size_t channels = comp->channels;
 
-	comp_roll(data, observations * channels, 1, observations);
-
-	double* head = data + observations;
 	for (size_t i = 0; i < observations; i++) {
-		//
-		// Cannot simply write into data[j + i * channels]
-		// This would overwrite during the final iteration.
-		// Instead write to aux[j] for simplicity
-		//
+		/*
+		 * Cannot simply write into data[j + i * channels]
+		 * This would overwrite during the final iteration.
+		 * Instead write to aux[j] for simplicity
+		 */
 		for (size_t j = 0; j < channels; j++)
-			aux[j] = comp_ddot(head, contrast_matrix + j, channels - 1, 1, channels);
-		for (size_t j = 0; j < channels; j++)
-			data[j] = aux[j];
+			aux[j] = comp_ddot(&data[i * channels], &contrast_matrix[j], channels - 1, 1, channels);
 
-		if (i < observations - 1) {
-			data += channels;
-			head += channels - 1;
-		}
+		for (size_t j = 0; j < channels; j++)
+			data[i * channels + j] = aux[j];
 	}
 
-	comp_closure(comp, total);
+	comp_inverse_centered_log_ratio(comp, total);
+}
+
+comp_t* comp_alloc(size_t observations, size_t channels) {
+	comp_t *comp = malloc(sizeof *comp);
+	if (comp == NULL)
+		return NULL;
+
+	double *data = malloc(observations * channels * sizeof *data);
+	if (data == NULL) {
+		free(comp);
+		return NULL;
+	}
+
+	double *aux = malloc(channels * sizeof *aux);
+	if (aux == NULL) {
+		free(comp);
+		free(data);
+		return NULL;
+	}
+
+	comp->data = data;
+	comp->aux = aux;
+	comp->observations = observations;
+	comp->channels = channels;
+
+	return comp;
+}
+
+void comp_free(comp_t** comp) {
+	if (comp == NULL || *comp == NULL)
+		return;
+
+	if ((*comp)->data != NULL)
+		free((*comp)->data);
+	
+	if ((*comp)->aux != NULL)
+		free((*comp)->aux);
+
+	free(*comp);
+	*comp = NULL;
+	return;
 }
